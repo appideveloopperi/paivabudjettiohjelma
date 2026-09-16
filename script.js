@@ -5,7 +5,6 @@ let supabaseClient = null;
 let currentUser = null;
 let isRegisterMode = false;
 
-// Kaaviotilojen muuttujat
 let categoryChartInstance = null;
 let balanceChartInstance = null;
 
@@ -35,9 +34,43 @@ async function initApp() {
   } catch (error) {
     console.error("Sovelluksen alustus epäonnistui:", error);
     alert(
-      "Virhe ladattaessa asetuksia (settings.json). Varmista, että ajat sovellusta paikallisella palvelimella.",
+      "Virhe ladattaessa asetuksia (settings.json). Varmista, että ajat sovellusta palvelimella.",
     );
   }
+}
+
+// Apufunktio ilmoituslaatikon näyttämiseen
+function showAlert(message, type = "info") {
+  const alertEl = document.getElementById("auth-alert");
+  if (!alertEl) return;
+
+  alertEl.classList.remove(
+    "hidden",
+    "bg-emerald-50",
+    "border-emerald-200",
+    "text-emerald-800",
+    "bg-amber-50",
+    "border-amber-200",
+    "text-amber-800",
+    "bg-rose-50",
+    "border-rose-200",
+    "text-rose-800",
+  );
+
+  if (type === "success") {
+    alertEl.classList.add("bg-emerald-50", "border-emerald-200", "text-emerald-800");
+  } else if (type === "warning") {
+    alertEl.classList.add("bg-amber-50", "border-amber-200", "text-amber-800");
+  } else {
+    alertEl.classList.add("bg-rose-50", "border-rose-200", "text-rose-800");
+  }
+
+  alertEl.innerHTML = message;
+}
+
+function hideAlert() {
+  const alertEl = document.getElementById("auth-alert");
+  if (alertEl) alertEl.classList.add("hidden");
 }
 
 // ==========================================
@@ -45,7 +78,8 @@ async function initApp() {
 // ==========================================
 function setupAuthListener() {
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    if (session) {
+    // Varmistetaan että käyttäjän sähköposti on vahvistettu ennen kuin päästetään sisään
+    if (session && session.user && session.user.email_confirmed_at) {
       currentUser = session.user;
 
       document.getElementById("auth-section").classList.add("hidden");
@@ -54,6 +88,15 @@ function setupAuthListener() {
       document.getElementById("logout-btn")?.classList.remove("hidden");
 
       await loadData();
+    } else if (session && session.user && !session.user.email_confirmed_at) {
+      // Jos sessio syntyi mutta sähköposti ei ole vielä vahvistettu
+      await supabaseClient.auth.signOut();
+      currentUser = null;
+
+      showAlert(
+        "<strong>Sähköpostia ei ole vielä vahvistettu!</strong><br>Tarkista sähköpostisi ja klikkaa vahvistuslinkkiä ennen kirjautumista.",
+        "warning",
+      );
     } else {
       currentUser = null;
 
@@ -71,16 +114,51 @@ function setupEventListeners() {
   if (authForm) {
     authForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      hideAlert();
+
       const email = document.getElementById("auth-email").value;
       const password = document.getElementById("auth-password").value;
 
       if (isRegisterMode) {
-        const { error } = await supabaseClient.auth.signUp({ email, password });
-        if (error) alert("Rekisteröityminen epäonnistui: " + error.message);
-        else alert("Rekisteröinti onnistui! Voit nyt kirjautua sisään.");
+        const { data, error } = await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: window.location.href,
+          },
+        });
+
+        if (error) {
+          showAlert(`Rekisteröityminen epäonnistui: ${error.message}`, "error");
+        } else if (data.user && !data.user.email_confirmed_at) {
+          // Vaihdetaan lomake kirjautumistilaan ja näytetään vahvistuspyyntö
+          isRegisterMode = false;
+          updateAuthUI();
+
+          showAlert(
+            `<strong>Rekisteröinti onnistui!</strong><br>Lähetimme vahvistuslinkin osoitteeseen <b>${email}</b>. Vahvista sähköpostisi ennen kirjautumista.`,
+            "success",
+          );
+        }
       } else {
-        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) alert("Kirjautuminen epäonnistui: " + error.message);
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+        if (error) {
+          if (error.message.includes("Email not confirmed")) {
+            showAlert(
+              "<strong>Sähköpostia ei ole vahvistettu!</strong> Tarkista sähköpostilaatikkosi.",
+              "warning",
+            );
+          } else {
+            showAlert(`Kirjautuminen epäonnistui: ${error.message}`, "error");
+          }
+        } else if (data.user && !data.user.email_confirmed_at) {
+          await supabaseClient.auth.signOut();
+          showAlert(
+            "<strong>Sähköpostia ei ole vielä vahvistettu!</strong> Vahvista osoitteesi sähköpostistasi löytyvästä linkistä.",
+            "warning",
+          );
+        }
       }
     });
   }
@@ -89,17 +167,9 @@ function setupEventListeners() {
   if (toggleAuthBtn) {
     toggleAuthBtn.addEventListener("click", (e) => {
       e.preventDefault();
+      hideAlert();
       isRegisterMode = !isRegisterMode;
-
-      const titleEl = document.getElementById("auth-title");
-      const submitBtn = document.getElementById("auth-submit-btn");
-
-      if (titleEl) titleEl.textContent = isRegisterMode ? "Luo uusi tili" : "Kirjaudu sisään";
-      if (submitBtn) submitBtn.textContent = isRegisterMode ? "Rekisteröidy" : "Kirjaudu";
-
-      toggleAuthBtn.textContent = isRegisterMode
-        ? "Onko sinulla jo tili? Kirjaudu sisään"
-        : "Eikö sinulla ole tiliä? Rekisteröidy tästä";
+      updateAuthUI();
     });
   }
 
@@ -200,6 +270,20 @@ function setupEventListeners() {
       state.showSettings = !state.showSettings;
       render();
     });
+  }
+}
+
+function updateAuthUI() {
+  const titleEl = document.getElementById("auth-title");
+  const submitBtn = document.getElementById("auth-submit-btn");
+  const toggleAuthBtn = document.getElementById("toggle-auth-mode-btn");
+
+  if (titleEl) titleEl.textContent = isRegisterMode ? "Luo uusi tili" : "Kirjaudu sisään";
+  if (submitBtn) submitBtn.textContent = isRegisterMode ? "Rekisteröidy" : "Kirjaudu";
+  if (toggleAuthBtn) {
+    toggleAuthBtn.textContent = isRegisterMode
+      ? "Onko sinulla jo tili? Kirjaudu sisään"
+      : "Eikö sinulla ole tiliä? Rekisteröidy tästä";
   }
 }
 
@@ -343,7 +427,6 @@ async function removeTransaction(id) {
 function renderCharts() {
   if (typeof Chart === "undefined") return;
 
-  // --- A. Donitsikaavio: Menot kategorioittain ---
   const expensesByCategory = {};
   state.transactions.forEach((tx) => {
     if (tx.type === "expense") {
@@ -393,10 +476,8 @@ function renderCharts() {
     });
   }
 
-  // --- B. Viivakaavio: Saldon kehitys historia-aineistosta ---
   const ctxBalance = document.getElementById("balance-chart")?.getContext("2d");
   if (ctxBalance) {
-    // Lasketaan historiallinen saldo peruutussuunnassa nykyisestä saldosta
     let runningBalance = state.currentBalance;
     const balanceHistory = [runningBalance];
     const labels = ["Nyt"];
@@ -418,7 +499,7 @@ function renderCharts() {
     balanceChartInstance = new Chart(ctxBalance, {
       type: "line",
       data: {
-        labels: labels.slice(-7), // Näytetään max 7 viimeisintä pistettä
+        labels: labels.slice(-7),
         datasets: [
           {
             label: "Saldo (€)",
@@ -515,8 +596,6 @@ function render() {
   }
 
   updateHeroTester();
-
-  // Päivitetään myös kaaviot renderöinnin yhteydessä
   renderCharts();
 }
 
