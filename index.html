@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="fi" class="h-full bg-emerald-50/50">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Päiväbudjetti</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Lisätty Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body
+    class="h-full text-slate-800 font-sans antialiased bg-emerald-50/50 flex flex-col items-center p-4 sm:p-6"
+  >
+    <div class="w-full max-w-xl space-y-6">
+      <!-- HEADER -->
+      <header
+        class="flex justify-between items-center bg-white p-4 rounded-2xl border border-emerald-100 shadow-sm"
+      >
+        <div class="flex items-center space-x-3">
+          <div
+            class="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold text-xl shadow-md shadow-emerald-500/20"
+          >
+            €
+          </div>
+          <div>
+            <h1 class="text-lg font-bold tracking-tight text-slate-900">Päiväbudjetti</h1>
+            <p class="text-xs text-emerald-600 font-medium">● Pilvitallennus aktiivinen</p>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button
+            id="settings-toggle-btn"
+            class="hidden text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold px-3 py-2 rounded-xl transition border border-emerald-200/60"
+          >
+            ⚙️ Asetukset
+          </button>
+          <button
+            id="logout-btn"
+            class="hidden text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold px-3 py-2 rounded-xl transition border border-rose-100"
+          >
+            Ulos
+          </button>
+        </div>
+      </header>
+
+      <!-- KIRJAUTUMISKORTTI -->
+      <section
+        id="auth-section"
+        class="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm space-y-4"
+      >
+        <div class="text-center space-y-1">
+          <h2 id="auth-title" class="text-xl font-bold text-slate-900">Kirjaudu sisään</h2>
+          <p class="text-xs text-slate-500">
+            Hallitse talouttasi ja synkronoi tiedot laitteiden välillä.
+          </p>
+        </div>
+
+        <form id="auth-form" class="space-y-4 pt-2">
+          <div>
+            <label
+              class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5"
+              >Sähköposti</label
+            >
+            <input
+              type="email"
+              id="auth-email"
+              required
+              placeholder="nimi@esimerkki.fi"
+              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+            />
+          </div>
+          <div>
+            <label
+              class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5"
+              >Salasana</label
+            >
+            <input
+              type="password"
+              id="auth-password"
+              required
+              placeholder="••••••••"
+              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+            />
+          </div>
+
+          <button
+            type="submit"
+            id="auth-submit-btn"
+            class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl shadow-md transition"
+          >
+            Kirjaudu
+          </button>
+        </form>
+
+        <div class="pt-2 text-center border-t border-slate-100">
+          <button
+            id="toggle-auth-mode-btn"
+            type="button"
+            class="text-xs text-emerald-600 font-medium hover:underline"
+          >
+            Eikö sinulla ole tiliä? Rekisteröidy tästä
+          </button>
+        </div>
+      </section>
+
+      <!-- ASETUKSET -->
+      <section
+        id="settings-section"
+        class="hidden bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm space-y-5"
+      >
+        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Asetukset & Saldo</h3>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1"
+              >Nykyinen saldo (€)</label
+            >
+            <input
+              type="number"
+              step="0.01"
+              id="setting-balance"
+              class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Palkkapäivä (pvm)</label>
+            <input
+              type="number"
+              min="1"
+              max="31"
+              id="setting-payday"
+              class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block text-xs font-semibold text-slate-600">Kategoriat</label>
+          <div
+            id="category-tags-container"
+            class="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl min-h-[44px] items-center"
+          ></div>
+          <div class="flex space-x-2 pt-1">
+            <input
+              type="text"
+              id="new-category-input"
+              placeholder="Uusi kategoria..."
+              class="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <button
+              type="button"
+              id="add-category-btn"
+              class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition"
+            >
+              + Lisää
+            </button>
+          </div>
+        </div>
+
+        <button
+          id="save-settings-btn"
+          class="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-3 rounded-xl transition"
+        >
+          Tallenna muutokset
+        </button>
+      </section>
+
+      <!-- PÄÄSOVELLUS -->
+      <main id="app-section" class="hidden space-y-5">
+        <!-- HERO KORTTI -->
+        <section
+          class="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 p-6 rounded-3xl shadow-xl shadow-emerald-500/10 text-white space-y-4"
+        >
+          <div class="relative z-10 space-y-1">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-semibold uppercase tracking-widest text-emerald-100"
+                >Käytettävissä tänään</span
+              >
+              <button
+                id="toggle-tester-btn"
+                class="text-xs bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-lg backdrop-blur-sm transition border border-white/20"
+              >
+                🧪 Testaa menoa
+              </button>
+            </div>
+
+            <div
+              id="daily-budget-display"
+              class="text-5xl font-black tracking-tight drop-shadow-sm"
+            >
+              0.00 €
+            </div>
+            <p
+              id="days-left-display"
+              class="text-xs text-emerald-100/90 pt-2 border-t border-emerald-400/40"
+            >
+              Ladataan tietoja...
+            </p>
+          </div>
+
+          <div
+            id="hero-tester-box"
+            class="hidden relative z-10 pt-3 border-t border-emerald-400/30 space-y-3 bg-black/10 p-4 rounded-2xl backdrop-blur-sm"
+          >
+            <div class="text-xs font-bold uppercase tracking-wider text-emerald-100">
+              Kokeile menon vaikutusta:
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                step="0.01"
+                id="hero-test-amount"
+                placeholder="Kokeile summaa (€)"
+                class="px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-xs text-white placeholder-emerald-200/60 focus:outline-none focus:ring-2 focus:ring-white"
+              />
+              <select
+                id="hero-test-type"
+                class="px-3 py-2 bg-white/10 border border-white/20 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-white"
+              >
+                <option value="expense" class="text-slate-800">Meno (-)</option>
+                <option value="income" class="text-slate-800">Tulo (+)</option>
+              </select>
+            </div>
+            <div
+              id="hero-test-results"
+              class="hidden p-2.5 bg-white/15 rounded-xl space-y-1 text-xs"
+            >
+              <div class="flex justify-between items-center font-medium">
+                <span class="text-emerald-100">Uusi päiväbudjetti:</span>
+                <span id="hero-test-daily" class="font-bold text-white text-sm">0.00 € / pv</span>
+              </div>
+              <div class="flex justify-between items-center text-[11px] text-emerald-100/80">
+                <span>Uusi kokonaissaldo:</span>
+                <span id="hero-test-balance" class="font-semibold text-white">0.00 €</span>
+              </div>
+            </div>
+          </div>
+          <div
+            class="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"
+          ></div>
+        </section>
+
+        <!-- UUSI TAPAHTUMA -->
+        <section class="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm space-y-3">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Uusi tapahtuma</h3>
+          <form id="tx-form" class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1"
+                  >Summa (€)</label
+                >
+                <input
+                  type="number"
+                  step="0.01"
+                  id="tx-amount"
+                  placeholder="0.00 €"
+                  required
+                  class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                />
+              </div>
+              <div>
+                <label
+                  class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1"
+                  >Kategoria</label
+                >
+                <select
+                  id="tx-category"
+                  class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                ></select>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1"
+                  >Tapahtumatyyppi</label
+                >
+                <select
+                  id="tx-type"
+                  class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                >
+                  <option value="expense">Meno</option>
+                  <option value="income">Tulo</option>
+                </select>
+              </div>
+              <div>
+                <label
+                  class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1"
+                  >Selite (valinnainen)</label
+                >
+                <input
+                  type="text"
+                  id="tx-description"
+                  placeholder="Esim. Kauppa"
+                  class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl transition shadow-md"
+            >
+              + Lisää merkintä
+            </button>
+          </form>
+        </section>
+
+        <!-- KAAVIOT (LISÄTTY OSIO) -->
+        <section class="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm space-y-4">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Talouden visualisointi
+          </h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Donitsikaavio: Menot kategorioittain -->
+            <div
+              class="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex flex-col items-center"
+            >
+              <h4 class="text-xs font-semibold text-slate-600 mb-2">Menot kategorioittain</h4>
+              <div class="relative w-full max-w-[200px] h-[200px]">
+                <canvas id="category-chart"></canvas>
+              </div>
+            </div>
+
+            <!-- Viivakaavio: Saldokehitys -->
+            <div
+              class="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex flex-col items-center"
+            >
+              <h4 class="text-xs font-semibold text-slate-600 mb-2">Saldon kehitys</h4>
+              <div class="relative w-full h-[200px]">
+                <canvas id="balance-chart"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAPAHTUMALISTAUS -->
+        <section class="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm space-y-3">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Viimeisimmät tapahtumat
+          </h3>
+          <div id="tx-list" class="space-y-2 divide-y divide-slate-100"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
