@@ -39,7 +39,6 @@ async function initApp() {
   }
 }
 
-// Apufunktio ilmoituslaatikon näyttämiseen
 function showAlert(message, type = "info") {
   const alertEl = document.getElementById("auth-alert");
   if (!alertEl) return;
@@ -73,12 +72,38 @@ function hideAlert() {
   if (alertEl) alertEl.classList.add("hidden");
 }
 
+// Apufunktio ISO-päivämäärämerkkijonon muotoiluun suomalaiseen muotoon (esim. 17.9.2026 klo 14.30)
+function formatFinnishDateTime(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return isoString;
+
+  const dateStr = d.toLocaleDateString("fi-FI", {
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
+  const timeStr = d.toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" });
+
+  return `${dateStr} klo ${timeStr}`;
+}
+
+// Apufunktio muuntamaan ISO-Aika (tai Date) ISO-stringiksi input[type="datetime-local"] varten (YYYY-MM-THH:mm)
+function toDatetimeLocalValue(isoString) {
+  const d = isoString ? new Date(isoString) : new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 // ==========================================
 // 3. AUTHENTICATION & TILAN SEURANTA
 // ==========================================
 function setupAuthListener() {
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    // Varmistetaan että käyttäjän sähköposti on vahvistettu ennen kuin päästetään sisään
     if (session && session.user && session.user.email_confirmed_at) {
       currentUser = session.user;
 
@@ -89,7 +114,6 @@ function setupAuthListener() {
 
       await loadData();
     } else if (session && session.user && !session.user.email_confirmed_at) {
-      // Jos sessio syntyi mutta sähköposti ei ole vielä vahvistettu
       await supabaseClient.auth.signOut();
       currentUser = null;
 
@@ -131,10 +155,8 @@ function setupEventListeners() {
         if (error) {
           showAlert(`Rekisteröityminen epäonnistui: ${error.message}`, "error");
         } else if (data.user && !data.user.email_confirmed_at) {
-          // Vaihdetaan lomake kirjautumistilaan ja näytetään vahvistuspyyntö
           isRegisterMode = false;
           updateAuthUI();
-
           showAlert(
             `<strong>Rekisteröinti onnistui!</strong><br>Lähetimme vahvistuslinkin osoitteeseen <b>${email}</b>. Vahvista sähköpostisi ennen kirjautumista.`,
             "success",
@@ -198,6 +220,7 @@ function setupEventListeners() {
     heroTestType.addEventListener("change", updateHeroTester);
   }
 
+  // UUSI TAPAHTUMA - LOMAKE
   const txForm = document.getElementById("tx-form");
   if (txForm) {
     txForm.addEventListener("submit", async (e) => {
@@ -207,6 +230,7 @@ function setupEventListeners() {
       const amount = parseFloat(document.getElementById("tx-amount").value);
       const category = document.getElementById("tx-category").value;
       const description = document.getElementById("tx-description").value;
+      const datetimeInput = document.getElementById("tx-datetime").value;
 
       if (isNaN(amount) || amount <= 0) return;
 
@@ -216,20 +240,84 @@ function setupEventListeners() {
         state.currentBalance += amount;
       }
 
-      state.transactions.unshift({
+      const isoDate = datetimeInput
+        ? new Date(datetimeInput).toISOString()
+        : new Date().toISOString();
+
+      state.transactions.push({
         id: Date.now(),
         type,
         amount,
         category,
         description,
-        date: new Date().toLocaleDateString("fi-FI"),
+        timestamp: isoDate,
       });
+
+      // Järjestetään tapahtumat aikajärjestykseen (uusin ensin)
+      sortTransactions();
 
       document.getElementById("tx-amount").value = "";
       document.getElementById("tx-description").value = "";
+      document.getElementById("tx-datetime").value = "";
 
       render();
       await saveData();
+    });
+  }
+
+  // MODALIN TAPAHTUMANKUUNTELIJAT
+  const closeModalBtn = document.getElementById("close-modal-btn");
+  const cancelEditBtn = document.getElementById("cancel-edit-btn");
+  if (closeModalBtn) closeModalBtn.addEventListener("click", closeEditModal);
+  if (cancelEditBtn) cancelEditBtn.addEventListener("click", closeEditModal);
+
+  const editTxForm = document.getElementById("edit-tx-form");
+  if (editTxForm) {
+    editTxForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const id = parseInt(document.getElementById("edit-tx-id").value);
+      const newAmount = parseFloat(document.getElementById("edit-tx-amount").value);
+      const newCategory = document.getElementById("edit-tx-category").value;
+      const newType = document.getElementById("edit-tx-type").value;
+      const newDescription = document.getElementById("edit-tx-description").value;
+      const newDatetime = document.getElementById("edit-tx-datetime").value;
+
+      if (isNaN(newAmount) || newAmount <= 0) return;
+
+      const index = state.transactions.findIndex((t) => t.id === id);
+      if (index !== -1) {
+        const oldTx = state.transactions[index];
+
+        // 1. Perutaan vanhan tapahtuman vaikutus saldoon
+        if (oldTx.type === "expense") {
+          state.currentBalance += oldTx.amount;
+        } else {
+          state.currentBalance -= oldTx.amount;
+        }
+
+        // 2. Lisätään uusi vaikutus saldoon
+        if (newType === "expense") {
+          state.currentBalance -= newAmount;
+        } else {
+          state.currentBalance += newAmount;
+        }
+
+        // 3. Päivitetään tapahtuma
+        state.transactions[index] = {
+          ...oldTx,
+          amount: newAmount,
+          category: newCategory,
+          type: newType,
+          description: newDescription,
+          timestamp: new Date(newDatetime).toISOString(),
+        };
+
+        sortTransactions();
+        closeEditModal();
+        render();
+        await saveData();
+      }
     });
   }
 
@@ -271,6 +359,10 @@ function setupEventListeners() {
       render();
     });
   }
+}
+
+function sortTransactions() {
+  state.transactions.sort((a, b) => new Date(b.timestamp || a.id) - new Date(a.timestamp || b.id));
 }
 
 function updateAuthUI() {
@@ -359,6 +451,15 @@ async function loadData() {
 
     if (data && data.data) {
       state = { ...state, ...data.data };
+
+      // Varmistetaan vanhojen tapahtumien yhteensopivuus aikaleimoissa
+      state.transactions = state.transactions.map((t) => ({
+        ...t,
+        timestamp:
+          t.timestamp || (t.date ? new Date(t.date).toISOString() : new Date(t.id).toISOString()),
+      }));
+
+      sortTransactions();
     } else {
       await saveData();
     }
@@ -390,7 +491,7 @@ async function saveData() {
 }
 
 // ==========================================
-// 6. SOVELLUSLOGIIKKA & LASKENTA
+// 6. SOVELLUSLOGIIKKA, MUOKKAUS & POISTO
 // ==========================================
 
 function getDaysUntilPayday() {
@@ -419,6 +520,31 @@ async function removeTransaction(id) {
 
   render();
   await saveData();
+}
+
+// TAPAHTUMAN MUOKKAUSMODALIN AVAUS & SULKU
+function openEditModal(id) {
+  const tx = state.transactions.find((t) => t.id === id);
+  if (!tx) return;
+
+  document.getElementById("edit-tx-id").value = tx.id;
+  document.getElementById("edit-tx-amount").value = tx.amount;
+  document.getElementById("edit-tx-type").value = tx.type;
+  document.getElementById("edit-tx-description").value = tx.description || "";
+  document.getElementById("edit-tx-datetime").value = toDatetimeLocalValue(tx.timestamp);
+
+  const editCatSelect = document.getElementById("edit-tx-category");
+  if (editCatSelect) {
+    editCatSelect.innerHTML = state.categories
+      .map((c) => `<option value="${c}" ${c === tx.category ? "selected" : ""}>${c}</option>`)
+      .join("");
+  }
+
+  document.getElementById("edit-modal").classList.remove("hidden");
+}
+
+function closeEditModal() {
+  document.getElementById("edit-modal").classList.add("hidden");
 }
 
 // ==========================================
@@ -484,14 +610,14 @@ function renderCharts() {
 
     const sortedTxs = [...state.transactions].reverse();
 
-    sortedTxs.forEach((tx, idx) => {
+    sortedTxs.forEach((tx) => {
       if (tx.type === "expense") {
         runningBalance += tx.amount;
       } else {
         runningBalance -= tx.amount;
       }
       balanceHistory.unshift(runningBalance);
-      labels.unshift(tx.date || `Tapahtuma ${idx + 1}`);
+      labels.unshift(formatFinnishDateTime(tx.timestamp).split(" klo")[0]);
     });
 
     if (balanceChartInstance) balanceChartInstance.destroy();
@@ -570,6 +696,7 @@ function render() {
         .map((tx) => {
           const isExpense = tx.type === "expense";
           const colorClass = isExpense ? "text-slate-900 font-bold" : "text-emerald-600 font-bold";
+          const formattedDate = formatFinnishDateTime(tx.timestamp);
 
           return `
             <div class="flex justify-between items-center py-3 first:pt-0">
@@ -579,12 +706,15 @@ function render() {
                   <span class="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-semibold rounded-md border border-emerald-100">
                     ${tx.category}
                   </span>
-                  <span class="text-xs text-slate-400">${tx.date}</span>
+                  <span class="text-xs text-slate-400">${formattedDate}</span>
                 </div>
               </div>
-              <div class="flex items-center space-x-3">
+              <div class="flex items-center space-x-2">
                 <span class="text-sm ${colorClass}">${isExpense ? "-" : "+"}${tx.amount.toFixed(2)} €</span>
-                <button onclick="removeTransaction(${tx.id})" class="text-xs text-slate-400 hover:text-rose-500 p-1 transition">
+                <button onclick="openEditModal(${tx.id})" title="Muokkaa" class="text-xs text-slate-400 hover:text-emerald-600 p-1 transition">
+                  ✏️
+                </button>
+                <button onclick="removeTransaction(${tx.id})" title="Poista" class="text-xs text-slate-400 hover:text-rose-500 p-1 transition">
                   ✕
                 </button>
               </div>
