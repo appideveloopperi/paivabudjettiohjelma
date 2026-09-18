@@ -1,6 +1,17 @@
 <!doctype html>
 <html lang="fi" class="h-full bg-emerald-50/50">
   <head>
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- PWA Meta-tägit -->
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#10b981" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Päiväbudjetti" />
+    <link
+      rel="apple-touch-icon"
+      href="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/192x192/1f4b0.png"
+    />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Päiväbudjetti</title>
@@ -465,5 +476,15 @@
     </div>
 
     <script src="script.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("./sw.js")
+            .then((reg) => console.log("Service Worker rekisteröity:", reg.scope))
+            .catch((err) => console.error("Service Workerin rekisteröinti epäonnistui:", err));
+        });
+      }
+    </script>
   </body>
 </html>
